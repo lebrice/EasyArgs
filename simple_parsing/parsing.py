@@ -97,8 +97,15 @@ class ArgumentParser(argparse.ArgumentParser):
         `argparse.MetavarTypeHelpFormatter` and
         `argparse.RawDescriptionHelpFormatter` classes.
 
-    - add_config_path_arg : bool, optional
-        When set to `True`, adds a `--config_path` argument, of type Path, which is used to parse
+    - add_config_path_arg : bool, str, optional
+        When set to `True`, adds a `--config_path` argument, of type Path, which is used to parse.
+        If set to a string then this is the name of the config_path argument.
+
+    - config_path: str, optional
+        The values read from this file will overwrite the default values from the dataclass definitions.
+        When `add_config_path_arg` is also set the defaults are first updated using `config_path`, and then
+        updated with the contents of the `--config_path` file(s). By setting this value it will be default set
+        `add_config_path_arg` to True.
     """
 
     def __init__(
@@ -111,7 +118,7 @@ class ArgumentParser(argparse.ArgumentParser):
         argument_generation_mode=ArgumentGenerationMode.FLAT,
         nested_mode: NestedMode = NestedMode.DEFAULT,
         formatter_class: type[HelpFormatter] = SimpleHelpFormatter,
-        add_config_path_arg: bool | None = None,
+        add_config_path_arg: bool | str | None = None,
         config_path: Path | str | Sequence[Path | str] | None = None,
         add_dest_to_option_strings: bool | None = None,
         **kwargs,
@@ -298,6 +305,11 @@ class ArgumentParser(argparse.ArgumentParser):
                 self.set_defaults(config_file)
 
         if self.add_config_path_arg:
+            config_path_name = (
+                self.add_config_path_arg
+                if isinstance(self.add_config_path_arg, str)
+                else "config_path"
+            )
             temp_parser = ArgumentParser(
                 add_config_path_arg=False,
                 add_help=False,
@@ -306,14 +318,14 @@ class ArgumentParser(argparse.ArgumentParser):
                 nested_mode=FieldWrapper.nested_mode,
             )
             temp_parser.add_argument(
-                "--config_path",
+                f"--{config_path_name}",
                 type=Path,
                 nargs="*",
                 default=self.config_path,
                 help="Path to a config file containing default values to use.",
             )
             args_with_config_path, args = temp_parser.parse_known_args(args)
-            config_path = args_with_config_path.config_path
+            config_path = getattr(args_with_config_path, config_path_name.replace("-", "_"))
 
             if config_path is not None:
                 config_paths = config_path if isinstance(config_path, list) else [config_path]
@@ -323,7 +335,7 @@ class ArgumentParser(argparse.ArgumentParser):
             # Adding it here just so it shows up in the help message. The default will be set in
             # the help string.
             self.add_argument(
-                "--config_path",
+                f"--{config_path_name}",
                 type=Path,
                 default=config_path,
                 help="Path to a config file containing default values to use.",
@@ -1000,7 +1012,7 @@ def parse(
     add_option_string_dash_variants: DashVariant = DashVariant.AUTO,
     argument_generation_mode=ArgumentGenerationMode.FLAT,
     formatter_class: type[HelpFormatter] = SimpleHelpFormatter,
-    add_config_path_arg: bool | None = None,
+    add_config_path_arg: bool | str | None = None,
     **kwargs,
 ) -> DataclassT:
     """Parse the given dataclass from the command-line.
@@ -1010,10 +1022,12 @@ def parse(
 
     If `config_path` is passed, loads the values from that file and uses them as defaults.
     """
+    if dest == add_config_path_arg:
+        raise ValueError("`add_config_path_arg` cannot be the same as `dest`.")
+
     parser = ArgumentParser(
         nested_mode=nested_mode,
         add_help=True,
-        # add_config_path_arg=None,
         config_path=config_path,
         conflict_resolution=conflict_resolution,
         add_option_string_dash_variants=add_option_string_dash_variants,
